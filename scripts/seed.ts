@@ -45,6 +45,7 @@ async function seed() {
 
   // Drop and recreate tables for a clean seed
   sqlite.exec(`
+    DROP TABLE IF EXISTS course_ratings;
     DROP TABLE IF EXISTS video_watch_events;
     DROP TABLE IF EXISTS quiz_answers;
     DROP TABLE IF EXISTS quiz_attempts;
@@ -1726,6 +1727,22 @@ You've completed the Building REST APIs course. You now have the skills to build
   console.log(
     `Created 1 team with Bossy McBossface as admin, 1 team purchase, and ${seededCoupons.length} coupons (2 redeemed, 3 available).`
   );
+
+  // ─── Course Ratings ───
+  // Only enrolled students rate courses
+  db.insert(schema.courseRatings)
+    .values([
+      { userId: students[0].id, courseId: course1.id, rating: 5, createdAt: daysAgo(20), updatedAt: daysAgo(20) },
+      { userId: students[1].id, courseId: course1.id, rating: 4, createdAt: daysAgo(18), updatedAt: daysAgo(18) },
+      { userId: students[2].id, courseId: course1.id, rating: 5, createdAt: daysAgo(15), updatedAt: daysAgo(15) },
+      { userId: students[4].id, courseId: course1.id, rating: 3, createdAt: daysAgo(10), updatedAt: daysAgo(10) },
+      { userId: students[0].id, courseId: course2.id, rating: 4, createdAt: daysAgo(25), updatedAt: daysAgo(25) },
+      { userId: students[2].id, courseId: course2.id, rating: 5, createdAt: daysAgo(20), updatedAt: daysAgo(20) },
+      { userId: students[3].id, courseId: course2.id, rating: 4, createdAt: daysAgo(15), updatedAt: daysAgo(15) },
+    ])
+    .run();
+
+  console.log("Created 7 course ratings.");
 
   console.log("\n✓ Seed complete!");
   console.log("  Users: 9 (1 admin, 2 instructors, 6 students)");
