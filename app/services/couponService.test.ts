@@ -274,5 +274,93 @@ describe("couponService", () => {
 
       expect(result.ok).toBe(true);
     });
+
+    it("creates a notification for each team admin on successful redemption", () => {
+      const { team, purchase } = setupTeamAndPurchase();
+      const [coupon] = generateCoupons(team.id, base.course.id, purchase.id, 3);
+      const redeemer = createRedeemer();
+
+      redeemCoupon(coupon.code, redeemer.id, "US");
+
+      const notifs = testDb
+        .select()
+        .from(schema.notifications)
+        .all();
+
+      expect(notifs).toHaveLength(1);
+      expect(notifs[0].recipientUserId).toBe(base.user.id); // the admin
+      expect(notifs[0].type).toBe(schema.NotificationType.CouponRedemption);
+      expect(notifs[0].title).toBe("Seat Claimed");
+      expect(notifs[0].message).toContain("Redeemer");
+      expect(notifs[0].message).toContain("Test Course");
+      expect(notifs[0].message).toContain("2 of 3 seats remaining");
+      expect(notifs[0].linkUrl).toBe("/team");
+    });
+
+    it("does not create notifications on failed redemption", () => {
+      const result = redeemCoupon("nonexistent-code", 999, "US");
+
+      expect(result.ok).toBe(false);
+
+      const notifs = testDb
+        .select()
+        .from(schema.notifications)
+        .all();
+
+      expect(notifs).toHaveLength(0);
+    });
+
+    it("creates notifications for multiple team admins", () => {
+      const { team, purchase } = setupTeamAndPurchase();
+      const [coupon] = generateCoupons(team.id, base.course.id, purchase.id, 2);
+      const redeemer = createRedeemer();
+
+      // Add a second admin
+      const admin2 = testDb
+        .insert(schema.users)
+        .values({
+          name: "Admin Two",
+          email: "admin2@example.com",
+          role: schema.UserRole.Student,
+        })
+        .returning()
+        .get();
+
+      testDb
+        .insert(schema.teamMembers)
+        .values({
+          teamId: team.id,
+          userId: admin2.id,
+          role: schema.TeamMemberRole.Admin,
+        })
+        .run();
+
+      redeemCoupon(coupon.code, redeemer.id, "US");
+
+      const notifs = testDb
+        .select()
+        .from(schema.notifications)
+        .all();
+
+      expect(notifs).toHaveLength(2);
+      const recipientIds = notifs.map((n) => n.recipientUserId).sort();
+      expect(recipientIds).toEqual([base.user.id, admin2.id].sort());
+    });
+
+    it("calculates seat counts per course correctly", () => {
+      const { team, purchase } = setupTeamAndPurchase();
+      // 5 coupons total, redeem 1 → 4 of 5 remaining
+      const couponsCreated = generateCoupons(team.id, base.course.id, purchase.id, 5);
+      const redeemer = createRedeemer();
+
+      redeemCoupon(couponsCreated[0].code, redeemer.id, "US");
+
+      const notifs = testDb
+        .select()
+        .from(schema.notifications)
+        .all();
+
+      expect(notifs[0].message).toContain("4 of 5 seats remaining");
+    });
   });
 });

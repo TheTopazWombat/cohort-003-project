@@ -1,6 +1,16 @@
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, sql } from "drizzle-orm";
 import { db } from "~/db";
-import { coupons, purchases, enrollments } from "~/db/schema";
+import {
+  coupons,
+  purchases,
+  enrollments,
+  users,
+  courses,
+  teamMembers,
+  notifications,
+  NotificationType,
+  TeamMemberRole,
+} from "~/db/schema";
 import crypto from "crypto";
 
 // ─── Coupon Service ───
@@ -115,5 +125,67 @@ export function redeemCoupon(
     .returning()
     .get();
 
+  // 6. Notify team admins
+  notifyTeamAdmins(coupon.teamId, coupon.courseId, userId);
+
   return { ok: true, enrollment };
+}
+
+function notifyTeamAdmins(teamId: number, courseId: number, redeemerId: number) {
+  const redeemer = db
+    .select({ name: users.name })
+    .from(users)
+    .where(eq(users.id, redeemerId))
+    .get();
+
+  const course = db
+    .select({ title: courses.title })
+    .from(courses)
+    .where(eq(courses.id, courseId))
+    .get();
+
+  if (!redeemer || !course) return;
+
+  const totalSeats = db
+    .select({ count: sql<number>`count(*)` })
+    .from(coupons)
+    .where(and(eq(coupons.teamId, teamId), eq(coupons.courseId, courseId)))
+    .get()!.count;
+
+  const remainingSeats = db
+    .select({ count: sql<number>`count(*)` })
+    .from(coupons)
+    .where(
+      and(
+        eq(coupons.teamId, teamId),
+        eq(coupons.courseId, courseId),
+        isNull(coupons.redeemedByUserId)
+      )
+    )
+    .get()!.count;
+
+  const message = `${redeemer.name} redeemed a coupon for ${course.title} (${remainingSeats} of ${totalSeats} seats remaining)`;
+
+  const admins = db
+    .select({ userId: teamMembers.userId })
+    .from(teamMembers)
+    .where(
+      and(
+        eq(teamMembers.teamId, teamId),
+        eq(teamMembers.role, TeamMemberRole.Admin)
+      )
+    )
+    .all();
+
+  for (const admin of admins) {
+    db.insert(notifications)
+      .values({
+        recipientUserId: admin.userId,
+        type: NotificationType.CouponRedemption,
+        title: "Seat Claimed",
+        message,
+        linkUrl: "/team",
+      })
+      .run();
+  }
 }
